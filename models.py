@@ -1,5 +1,6 @@
 """Pydantic models for request and response schemas."""
-from pydantic import BaseModel, Field
+from typing import Literal
+from pydantic import BaseModel, Field, field_validator
 
 
 class SensorData(BaseModel):
@@ -19,11 +20,26 @@ class Comfort(BaseModel):
     state: str = Field(..., description="Comfort state (e.g., 'comfortable', 'too hot', 'too cold')")
 
 
+# Definisi tipe yang diizinkan untuk AC Control
+ACMode = Literal["cool", "fan", "dry", "heat"]
+ACFanSpeed = Literal["low", "medium", "high", "auto", "quiet"]
+
+
 class ACControl(BaseModel):
     """Pengaturan AC untuk mencapai kenyamanan."""
-    temp: int = Field(..., description="AC temperature setting (°C) - integer value 16-30")
-    mode: str = Field(..., description="AC mode: 'cool', 'fan', 'dry', 'auto', 'off'")
-    fan: str = Field(..., description="Fan speed: 'low', 'medium', 'high', 'auto'")
+    temp: int = Field(..., ge=10, le=32, description="AC temperature setting (°C) - integer value 10-32")
+    mode: ACMode = Field(..., description="AC mode: 'cool', 'fan', 'dry', 'heat'")
+    fan: ACFanSpeed = Field(..., description="Fan speed: 'low', 'medium', 'high', 'auto', 'quiet'")
+    
+    @field_validator('temp')
+    @classmethod
+    def validate_temp(cls, v: int) -> int:
+        """Pastikan temperature dalam range yang valid."""
+        if v < 10:
+            return 10
+        if v > 32:
+            return 32
+        return v
 
 
 class Recommendation(BaseModel):
@@ -36,3 +52,13 @@ class ComfortAnalysisResponse(BaseModel):
     """Response JSON terstruktur."""
     Comfort: Comfort
     Recommendation: Recommendation
+
+
+class HistoryEntry(BaseModel):
+    """Entry untuk menyimpan history eksekusi LLM sebelumnya."""
+    timestamp: str = Field(..., description="Timestamp eksekusi (ISO format)")
+    sensor_data: SensorData = Field(..., description="Data sensor saat eksekusi")
+    ac_control: ACControl = Field(..., description="Pengaturan AC yang direkomendasikan")
+    comfort_state: str = Field(..., description="Status kenyamanan")
+    pmv: float = Field(..., description="PMV value")
+    ppd: float = Field(..., description="PPD value")

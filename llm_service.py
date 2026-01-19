@@ -6,11 +6,15 @@ Versi ISO 7730 dengan perbaikan:
 - Score terpisah untuk kualitas LINGKUNGAN
 - Context-aware: soroti masalah utama (termal vs non-termal)
 - Model constraints dijelaskan sebagai batasan, bukan fakta absolut
+- History-aware: menggunakan data eksekusi sebelumnya untuk konteks
 """
 import os
 import json
 import requests
-from models import SensorData
+from datetime import datetime
+from collections import deque
+from typing import Optional, List
+from models import SensorData, HistoryEntry, ACControl
 from rule_engine import RuleResult, EnvIssue
 
 
@@ -47,11 +51,72 @@ def get_pmv_description(pmv: float) -> str:
 class LLMService:
     """Service untuk berkomunikasi dengan LLM - HANYA UNTUK NARASI."""
     
+    # History storage (class-level untuk persist antar instance)
+    _execution_history: deque = deque(maxlen=10)  # Simpan maksimal 10 history terakhir
+    
     def __init__(self):
         self.mode = os.getenv("LLM_MODE", "ollama").lower()
         self.endpoint = os.getenv("LLM_ENDPOINT", "http://localhost:11434/api/generate")
         self.api_key = os.getenv("LLM_API_KEY")
         self.model = os.getenv("LLM_MODEL", "llama3.2")
+    
+    def _save_to_history(self, sensor_data: SensorData, rule_result: RuleResult) -> None:
+        """Simpan hasil eksekusi ke history."""
+        entry = HistoryEntry(
+            timestamp=datetime.now().isoformat(),
+            sensor_data=sensor_data,
+            ac_control=rule_result.ac_control,
+            comfort_state=rule_result.comfort.state,
+            pmv=rule_result.comfort.pmv,
+            ppd=rule_result.comfort.ppd
+        )
+        self._execution_history.append(entry)
+    
+    def _get_history_context(self) -> str:
+        """Generate context dari history eksekusi sebelumnya."""
+        if not self._execution_history:
+            return ""
+        
+        history_text = "\n══════════════════════════════════════════════════════════════════\n"
+        history_text += "HISTORY EKSEKUSI SEBELUMNYA (untuk konteks):\n"
+        history_text += "══════════════════════════════════════════════════════════════════\n"
+        
+        for i, entry in enumerate(list(self._execution_history)[-3:], 1):  # Ambil 3 terakhir
+            history_text += f"\n[{i}] Waktu: {entry.timestamp}\n"
+            history_text += f"    Sensor: temp={entry.sensor_data.temp}°C, hum={entry.sensor_data.hum}%\n"
+            history_text += f"    AC Setting: temp={entry.ac_control.temp}°C, mode={entry.ac_control.mode}, fan={entry.ac_control.fan}\n"
+            history_text += f"    Status: {entry.comfort_state} (PMV={entry.pmv}, PPD={entry.ppd}%)\n"
+        
+        # Analisis trend jika ada minimal 2 history
+        if len(self._execution_history) >= 2:
+            recent = list(self._execution_history)[-2:]
+            pmv_trend = recent[-1].pmv - recent[-2].pmv
+            temp_trend = recent[-1].sensor_data.temp - recent[-2].sensor_data.temp
+            
+            history_text += "\nTREND ANALYSIS:\n"
+            if pmv_trend > 0.2:
+                history_text += f"  → PMV meningkat (+{pmv_trend:.2f}): kondisi semakin hangat\n"
+            elif pmv_trend < -0.2:
+                history_text += f"  → PMV menurun ({pmv_trend:.2f}): kondisi semakin dingin\n"
+            else:
+                history_text += f"  → PMV stabil (Δ{pmv_trend:.2f})\n"
+            
+            if temp_trend > 0.5:
+                history_text += f"  → Suhu ruangan meningkat (+{temp_trend:.1f}°C)\n"
+            elif temp_trend < -0.5:
+                history_text += f"  → Suhu ruangan menurun ({temp_trend:.1f}°C)\n"
+        
+        return history_text
+    
+    def get_last_ac_setting(self) -> Optional[ACControl]:
+        """Dapatkan setting AC terakhir dari history."""
+        if self._execution_history:
+            return self._execution_history[-1].ac_control
+        return None
+    
+    def get_history(self) -> List[HistoryEntry]:
+        """Dapatkan semua history."""
+        return list(self._execution_history)
 
     def generate_reason(self, sensor_data: SensorData, rule_result: RuleResult) -> str:
         """Generate narasi/reason berdasarkan data sensor dan hasil rule engine."""
@@ -59,10 +124,15 @@ class LLMService:
         
         try:
             response_text = self._generate(prompt)
-            return self._parse_reason(response_text)
+            reason = self._parse_reason(response_text)
         except Exception as e:
             # Fallback reason jika LLM gagal
-            return self._generate_fallback_reason(sensor_data, rule_result)
+            reason = self._generate_fallback_reason(sensor_data, rule_result)
+        
+        # Simpan ke history setelah eksekusi berhasil
+        self._save_to_history(sensor_data, rule_result)
+        
+        return reason
 
     def _build_prompt(self, data: SensorData, result: RuleResult) -> str:
         """Buat prompt untuk LLM dengan informasi ISO 7730 dan context-aware guidance."""
@@ -197,12 +267,14 @@ KEPUTUSAN KONTROL AC:
 {narrative_guardrails}
 
 {score_status_explanation}
+{self._get_history_context()}
 
 TUGAS: Buat narasi 3-5 kalimat yang:
 1. Menjelaskan kondisi dengan alur sebab-akibat
 2. Mengikuti GUARDRAIL NARASI di atas
 3. Menyertakan kalimat WAJIB jika ada
 4. Konsisten dengan status "{result.comfort.state}"
+5. Jika ada history, pertimbangkan trend dan perubahan dari eksekusi sebelumnya
 
 FORMAT OUTPUT (JSON):
 {{"reason": "<narasi 3-5 kalimat>"}}"""

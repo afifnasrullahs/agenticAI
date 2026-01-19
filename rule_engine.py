@@ -441,9 +441,9 @@ def determine_ac_control(
     - Koreksi = target_temp ± adjustment (bukan dari current_temp)
     """
     
-    # Occupancy 0: Matikan AC untuk efisiensi energi
+    # Occupancy 0: Mode fan dengan suhu netral untuk efisiensi energi
     if occupancy == 0:
-        return ACControl(temp=24, mode="off", fan="auto")
+        return ACControl(temp=24, mode="fan", fan="quiet")
     
     abs_pmv = abs(pmv)
     thermal_severity = get_thermal_severity(pmv)
@@ -453,7 +453,7 @@ def determine_ac_control(
     if thermal_severity == "none":
         return ACControl(
             temp=int(round(target_temp)),
-            mode="auto",
+            mode="cool",
             fan="auto"
         )
     
@@ -504,7 +504,7 @@ def determine_ac_control(
         elif thermal_severity == "moderate":
             mode = "dry"  # Dry mode untuk transisi
         else:
-            mode = "auto"  # Biarkan AC menyesuaikan
+            mode = "fan"  # Fan only untuk kondisi dingin ringan
     
     # Clamp suhu ke range operasional AC Central (16-30°C)
     ac_temp = max(16, min(30, ac_temp))

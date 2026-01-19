@@ -153,7 +153,7 @@ Health check endpoint.
 | Field | Deskripsi | Values |
 |-------|-----------|--------|
 | `temp` | Setpoint AC | 16-30°C (integer) |
-| `mode` | Mode operasi | `cool`, `auto`, `dry`, `fan`, `off` |
+| `mode` | Mode operasi | `cool`, `auto`, `dry`, `fan`, `quiet` |
 | `fan` | Kecepatan fan | `auto`, `low`, `medium`, `high` |
 
 ## 🧮 Algoritma ISO 7730
