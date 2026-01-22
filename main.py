@@ -152,17 +152,34 @@ def fetch_and_process():
         response = analyze_comfort(sensor_data)
         response_json = response.model_dump()
         
+        # Extract ac_control untuk publish terpisah
+        ac_control = response_json.get("Recommendation", {}).get("ac_control", {})
+        
         # Publish response ke topic: response_LLM/device-1/data
         publish_topic = f"{MQTT_TOPIC_OUTPUT}/device-1/data"
+        ac_control_topic = f"{MQTT_TOPIC_OUTPUT}/device-1/ac_control"
+        
         client.reconnect()
+        
+        # Publish main response
         result = client.publish(publish_topic, json.dumps(response_json, indent=2))
+        
+        # Publish ac_control ke topic terpisah
+        result_ac = client.publish(ac_control_topic, json.dumps(ac_control, indent=2))
+        
         client.disconnect()
         
         if result.rc == mqtt.MQTT_ERR_SUCCESS:
             print(f"[MQTT] Response published to '{publish_topic}':")
             print(json.dumps(response_json, indent=2))
         else:
-            print(f"[MQTT] Failed to publish, error: {result.rc}")
+            print(f"[MQTT] Failed to publish response, error: {result.rc}")
+        
+        if result_ac.rc == mqtt.MQTT_ERR_SUCCESS:
+            print(f"[MQTT] AC Control published to '{ac_control_topic}':")
+            print(json.dumps(ac_control, indent=2))
+        else:
+            print(f"[MQTT] Failed to publish ac_control, error: {result_ac.rc}")
             
     except Exception as e:
         print(f"[Fetch] Error: {e}")
