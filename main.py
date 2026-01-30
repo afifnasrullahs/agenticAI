@@ -34,13 +34,16 @@ llm_service = LLMService()
 persistent_data = {topic: None for topic in MQTT_BASE_TOPICS}
 
 
-def analyze_comfort(sensor_data: SensorData) -> ComfortAnalysisResponse:
+def analyze_comfort(sensor_data: SensorData):
     """
     Analisis tingkat kenyamanan ruangan berdasarkan data sensor.
     
     Flow:
     1. Rule Engine menghitung score, status, dan AC control (DETERMINISTIK)
     2. LLM generate narasi/reason (HANYA PENJELASAN)
+    
+    Returns:
+        tuple: (ComfortAnalysisResponse, ACControl)
     """
     # Step 1: Rule Engine - Kalkulasi deterministik
     rule_result = evaluate(sensor_data)
@@ -64,7 +67,7 @@ def analyze_comfort(sensor_data: SensorData) -> ComfortAnalysisResponse:
         Input_sensor=input_sensor
     )
     
-    return response
+    return response, rule_result.ac_control
 
 
 def fetch_and_process():
@@ -156,11 +159,11 @@ def fetch_and_process():
         print(f"[Process] Combined sensor data: {sensor_data}")
         
         # Analyze comfort
-        response = analyze_comfort(sensor_data)
+        response, ac_control_obj = analyze_comfort(sensor_data)
         response_json = response.model_dump()
         
-        # Extract ac_control untuk publish terpisah
-        ac_control = response_json.get("Recommendation", {}).get("ac_control", {})
+        # Convert ac_control to dict untuk publish terpisah
+        ac_control = ac_control_obj.model_dump()
         
         # Publish response ke topic: response_LLM/device-1/data
         publish_topic = f"{MQTT_TOPIC_OUTPUT}/device-1/data"
