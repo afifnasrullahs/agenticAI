@@ -5,7 +5,7 @@ import os
 import paho.mqtt.client as mqtt
 from dotenv import load_dotenv
 
-from models import SensorData, ComfortAnalysisResponse, Recommendation
+from models import SensorData, ComfortAnalysisResponse, Recommendation, InputSensor
 from rule_engine import evaluate
 from llm_service import LLMService
 
@@ -48,13 +48,20 @@ def analyze_comfort(sensor_data: SensorData) -> ComfortAnalysisResponse:
     # Step 2: LLM - Generate narasi/reason saja
     reason = llm_service.generate_reason(sensor_data, rule_result)
     
-    # Step 3: Build response
+    # Step 3: Build response with Input_sensor
+    input_sensor = InputSensor(
+        temp=sensor_data.temp,
+        noise=sensor_data.noise,
+        light_level=sensor_data.light_level,
+        occupancy=sensor_data.occupancy
+    )
+    
     response = ComfortAnalysisResponse(
         Comfort=rule_result.comfort,
         Recommendation=Recommendation(
-            ac_control=rule_result.ac_control,
             reason=reason
-        )
+        ),
+        Input_sensor=input_sensor
     )
     
     return response
